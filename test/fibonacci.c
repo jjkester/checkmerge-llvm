@@ -2,6 +2,7 @@
  * Test program for CheckMerge.
  */
 #include <stdio.h>
+#include "fibonacci.h"
 
 int fibonacci(int n, int numbers[]) {
     for (int i; i < n; i++) {
