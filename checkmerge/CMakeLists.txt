@@ -1,5 +1,6 @@
 add_llvm_loadable_module(LLVMCheckMerge
         DependenceCollector.cpp
+        SourceVariableMapper.cpp
 )
 
 target_compile_features(LLVMCheckMerge PRIVATE cxx_range_for cxx_auto_type)
