@@ -1,33 +1,17 @@
-#include <llvm/Pass.h>
-#include <llvm/IR/DebugInfoMetadata.h>
-#include <llvm/IR/Instruction.h>
-#include <llvm/IR/Instructions.h>
+/**
+ * @file SourceVariableMapper.cpp
+ * @author Jan-Jelle Kester
+ *
+ * Definition of a LLVM analysis pass that finds and stores a mapping between IR instructions and the original source
+ * variable.
+ */
+#include "SourceVariableMapper.h"
+
 #include <llvm/IR/InstIterator.h>
 #include <llvm/IR/IntrinsicInst.h>
-#include <llvm/IR/ValueMap.h>
 #include <llvm/Support/FormatVariadic.h>
 
 using namespace llvm;
-
-namespace {
-
-    struct SourceVariableMapper : public FunctionPass {
-
-        typedef std::pair<const DILocalVariable *, const DebugLoc *> SourceVariable;
-        typedef DenseMap<const Value *, SourceVariable> SourceVariableMap;
-
-        static char ID;
-
-        SourceVariableMap mapping;
-
-        SourceVariableMapper() : FunctionPass(ID) {};
-
-        bool runOnFunction(Function &function) override;
-        void print(raw_ostream &os, const Module * = nullptr) const override;
-
-    };
-
-}
 
 bool SourceVariableMapper::runOnFunction(Function &function) {
     // Iterate over the instructions in a function
@@ -62,6 +46,15 @@ void SourceVariableMapper::print(raw_ostream &os, const Module *) const {
     }
 }
 
+SourceVariableMap SourceVariableMapper::getMapping() const {
+    return this->mapping;
+}
+
+// Dependencies and behavior of this analysis
+void SourceVariableMapper::getAnalysisUsage(AnalysisUsage &usage) const {
+    usage.setPreservesAll();
+}
+
 char SourceVariableMapper::ID = 0;
 
-static RegisterPass<SourceVariableMapper> SourceVariableMapperPass("checkmerge-vars", "CheckMerge source variable mapping", false, false);
+static RegisterPass<SourceVariableMapper> SourceVariableMapperPass("checkmerge-vars", "CheckMerge Source Variable Mapping", false, true);

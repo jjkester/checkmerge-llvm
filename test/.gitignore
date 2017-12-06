@@ -1,2 +1,5 @@
 # Ignore compiled tests
 *.ll
+
+# Ignore analyzed tests
+*.ll.cm

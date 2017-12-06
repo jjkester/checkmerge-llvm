@@ -1,171 +1,89 @@
 /**
- * \file DependenceCollector.cpp
- * \author Jan-Jelle Kester
+ * @file DependenceCollector.cpp
+ * @author Jan-Jelle Kester
  *
- * LLVM analysis pass that collects the results of the built-in memory dependence analysis and exposes this to a simple
- * interface.
+ * LLVM analysis pass that collects the results of the built-in memory dependence analysis and exposes this with a
+ * simple interface.
  *
- * \note Code heavily inspired by and partially copied from the native llvm/lib/Analysis/MemDepPrinter.cpp file.
+ * @note Code heavily inspired by and partially copied from the native llvm/lib/Analysis/MemDepPrinter.cpp file.
  */
-#include <llvm/Pass.h>
-#include <llvm/ADT/SetVector.h>
-#include <llvm/Analysis/MemoryDependenceAnalysis.h>
+#include "DependenceCollector.h"
+
 #include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/InstIterator.h>
 #include <llvm/Support/FormatVariadic.h>
+#include "SourceVariableMapper.h"
 
 using namespace llvm;
 
-namespace {
+// Dependencies and behavior of this analysis
+void DependenceCollector::getAnalysisUsage(AnalysisUsage &usage) const {
+    usage.setPreservesAll();
+    usage.addRequired<MemoryDependenceWrapperPass>();
+//    usage.addRequired<SourceVariableMapper>();
+}
 
-    /**
-     * Analysis pass which, for every function, accumulates the memory dependencies of each instruction.
-     */
-    struct DependenceCollector : public FunctionPass {
+Dependency DependenceCollector::buildDependency(MemDepResult result) {
+    DependencyType type = DependencyType::Unknown;
 
-        /**
-         * Types of dependencies that can be detected.
-         */
-        enum DependencyType {
-            Clobber = 0, /** Does unspeakable things to memory. */
-            Def, /** Writes to memory. */
-            NonFuncLocal, /** In other function, e.g., via a call. */
-            Unknown /** All other cases. */
-        };
+    if (result.isClobber()) {
+        type = DependencyType::Clobber;
+    }
+    if (result.isDef()) {
+        type = DependencyType::Def;
+    }
+    if (result.isNonFuncLocal()) {
+        type = DependencyType::NonFuncLocal;
+    }
 
-        // The instruction that is dependent on including the type of dependency
-        typedef PointerIntPair<const Instruction *, 2, DependencyType> Dependency;
-        // The (optional) dependency (nullptr if  with an optional block (nullptr if the dependency is local to the block of the
-        // instruction).
-        typedef std::pair<Dependency, const BasicBlock *> DependencyPair;
-        // A set of dependencies
-        typedef SmallSetVector<DependencyPair, 4> DependencySet;
-        // The dependencies per instruction
-        typedef DenseMap<const Instruction *, DependencySet> DependencyMap;
+    return {result.getInst(), type};
+}
 
-        // Metadata
-        typedef SmallVector<std::pair<unsigned, MDNode *>, 4> MDVector;
+DependencyPair DependenceCollector::buildDependencyPair(Dependency dependency, const BasicBlock * block) {
+    return static_cast<DependencyPair>(std::make_pair(dependency, block));
+}
 
-        DependencyMap dependencies;
-        Function *function;
+std::string DependenceCollector::formatInst(const Instruction *inst) {
+    // Initialize data variables
+    std::string locStr, idStr;
 
-        static char ID;
+    locStr = formatDebugLoc(inst);
 
-        DependenceCollector() : FunctionPass(ID) {
-            this->function = nullptr;
-        };
+    const StringRef instName = inst->getName();
 
-        bool runOnFunction(Function &function) override;
-        void print(raw_ostream &os, const Module * = nullptr) const override;
+    idStr = formatv("[{0}] {1}", instName, inst->getOpcodeName());
 
-        /**
-         * Prints the dependencies of the given instruction to the given output stream.
-         *
-         * @param os The output stream to print to.
-         * @param inst The instruction to print the dependencies of.
-         */
-        void printInstDeps(raw_ostream &os, const Instruction *inst) const;
+    if (locStr.empty()) {
+        return formatv("{0} ({1})", idStr, inst);
+    } else {
+        return formatv("{0} ({1}) @ {2}", idStr, inst, locStr);
+    }
+}
 
-        // Clean up memory
-        void releaseMemory() override {
-            this->dependencies.clear();
-            this->function = nullptr;
-        }
+ std::string DependenceCollector::formatDebugLoc(const Instruction *inst) {
+    // Collect metadata
+    MDVector metadata;
+    inst->getAllMetadata(metadata);
 
-        // Dependencies and behavior of this analysis
-        void getAnalysisUsage(AnalysisUsage &usage) const override {
-            usage.setPreservesAll();
-            usage.addRequired<MemoryDependenceWrapperPass>();
-        }
-
-    private:
-        /**
-         * Builds a combination of the instruction and its dependency type from a dependency result.
-         *
-         * @param result The query result to define the dependency for.
-         */
-        static Dependency buildDependency(MemDepResult result) {
-            DependencyType type = DependencyType::Unknown;
-
-            if (result.isClobber()) {
-                type = DependencyType::Clobber;
-            }
-            if (result.isDef()) {
-                type = DependencyType::Def;
-            }
-            if (result.isNonFuncLocal()) {
-                type = DependencyType::NonFuncLocal;
-            }
-
-            return {result.getInst(), type};
-        }
-
-        /**
-         * Builds a pair of a dependency and the block it appears in.
-         *
-         * @param dependency The dependency to optionally pair with a block.
-         * @param block The block to optionally pair with a dependency.
-         */
-        static DependencyPair buildDependencyPair(Dependency dependency, const BasicBlock * block) {
-            return static_cast<DependencyPair>(std::make_pair(dependency, block));
-        }
-
-        /**
-         * String formats the given instruction with some debug information.
-         *
-         * @param inst The instruction to format.
-         * @return A string representation of the instruction.
-         */
-        static std::string formatInst(const Instruction *inst) {
-            // Initialize data variables
-            std::string locStr, idStr;
-
-            locStr = formatDebugLoc(inst);
-
-            const StringRef instName = inst->getName();
-
-            idStr = formatv("[{0}] {1}", instName, inst->getOpcodeName());
-
-            if (locStr.empty()) {
-                return formatv("{0} ({1})", idStr, inst);
-            } else {
-                return formatv("{0} ({1}) @ {2}", idStr, inst, locStr);
+    for (auto &metapair : metadata) {
+        if (MDNode *node = metapair.second) {
+            // Fetch location
+            if (auto *location = dyn_cast<DILocation>(node)) {
+                return formatv("{0}:{1}:{2}", location->getFilename(), location->getLine(), location->getColumn());
             }
         }
+    }
 
-        /**
-         * String formats the debug location of the given instruction. May return the empty string if no location is
-         * available.
-         *
-         * @param inst The instruction to format the location of.
-         * @return A string representation of the original location of the instruction.
-         */
-        static std::string formatDebugLoc(const Instruction *inst) {
-            // Collect metadata
-            MDVector metadata;
-            inst->getAllMetadata(metadata);
+    return "";
+}
 
-            for (auto &metapair : metadata) {
-                if (MDNode *node = metapair.second) {
-                    // Fetch location
-                    if (auto *location = dyn_cast<DILocation>(node)) {
-                        return formatv("{0}:{1}:{2}", location->getFilename(), location->getLine(), location->getColumn());
-                    }
-                }
-            }
-
-            return "";
-        }
-
-        static std::string formatDependencyType(const DependencyType type) {
-            switch (type) {
-                case DependencyType::NonFuncLocal: return "non-local";
-                case DependencyType::Clobber: return "clobber";
-                case DependencyType::Def: return "def";
-                default: return "unknown";
-            }
-        }
-    };
+std::string DependenceCollector::formatDependencyType(const DependencyType type) {
+    switch (type) {
+        case DependencyType::NonFuncLocal: return "non-local";
+        case DependencyType::Clobber: return "clobber";
+        case DependencyType::Def: return "def";
+        default: return "unknown";
+    }
 }
 
 /**
@@ -231,6 +149,9 @@ void DependenceCollector::print(raw_ostream &os, const Module *) const {
         return;
     }
 
+    // Get variable mapping
+//    SourceVariableMap mapping = getAnalysis<SourceVariableMapper>().getMapping();
+
     // Print function name
     os << formatv("Function [{0}]", function->getName()) << '\n';
 
@@ -243,6 +164,16 @@ void DependenceCollector::print(raw_ostream &os, const Module *) const {
 
             // Print instruction
             os << formatv("    Instruction {0}", formatInst(inst)) << '\n';
+
+//            for (unsigned int j = 0; j < inst->getNumOperands(); j++) {
+//                Value *op = inst->getOperand(j);
+//                SourceVariableMap::const_iterator iterator = mapping.find(op);
+//
+//                if (iterator != mapping.end()) {
+//                    const SourceVariable &var = iterator->getSecond();
+//                    os << formatv("      Var {0}", var.first->getName()) << '\n';
+//                }
+//            }
 
             // Print dependencies
             printInstDeps(os, inst);
@@ -289,6 +220,10 @@ void DependenceCollector::printInstDeps(raw_ostream &os, const Instruction *inst
     }
 }
 
+DependencyMap DependenceCollector::getDependencies() const {
+    return dependencies;
+}
+
 char DependenceCollector::ID = 0;
 
-static RegisterPass<DependenceCollector> DependenceCollectorPass("checkmerge-memdep", "CheckMerge memory dependence", false, false);
+static RegisterPass<DependenceCollector> DependenceCollectorPass("checkmerge-memdep", "CheckMerge Memory Dependence", false, true);
