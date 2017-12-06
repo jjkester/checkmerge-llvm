@@ -1,7 +1,9 @@
+typedef int T;
+
 int main() {
-    int a = 1;
-    int b = 2;
-    int c = a;
+    T a = 1;
+    T b = 2;
+    T c = a;
     a = b;
     b = c;
     c = a;
