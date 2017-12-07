@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 
+# Set project
+project(CheckMerge-LLVM VERSION 0.1.0 LANGUAGES CXX)
+
 # Find LLVM cmake config
 find_package(LLVM REQUIRED CONFIG)
 
