@@ -89,7 +89,7 @@ namespace {
 
             DISubprogram *subprogram = function.getSubprogram();
 
-            out << formatv("function.{0}: &{1}", function.getName(), formatIdentifier(function)).str() << '\n';
+            out << formatIdentifier(function) << ':' << '\n';
             out << withIndent(
                     formatv(
                             "name: \"{0}\"\nmodule: \"{1}\"\nlocation: \"{2}\"",
@@ -108,7 +108,7 @@ namespace {
         std::string formatBasicBlock(BasicBlock &block) const {
             std::stringstream out;
 
-            out << formatv("block.{0}: &{1}", block.getName(), formatIdentifier(block)).str() << '\n';
+            out << formatIdentifier(block) << ':' << '\n';
 
             for (Instruction &instruction : block) {
                 out << withIndent(formatInstruction(instruction));
@@ -119,11 +119,12 @@ namespace {
 
         std::string formatInstruction(Instruction &instruction) const {
             std::stringstream out;
+            std::stringstream nout;
 
             const DebugLoc &loc = instruction.getDebugLoc();
 
-            out << "- &" << formatIdentifier(instruction) << '\n';
-            out << withIndent(formatv(
+            out << formatv("- {0}:", formatIdentifier(instruction)).str() << '\n';
+            nout << withIndent(formatv(
                     "opcode: {0}\nlocation: \"{1}\"",
                     instruction.getOpcodeName(),
                     bool(loc) ? formatLocation(loc.getLine(), loc.getCol()) : ""
@@ -135,8 +136,8 @@ namespace {
             if (variableIter.operator!=(this->variables.end())) {
                 SourceVariable variable = variableIter->second;
 
-                out << withIndent("variable:");
-                out << withIndent(withIndent(formatv(
+                nout << withIndent("variable:");
+                nout << withIndent(withIndent(formatv(
                         "name: \"{0}\"\nlocation: \"{1}\"",
                         variable.first->getName(),
                         bool(variable.second) ? formatLocation(variable.second->getLine(), variable.second->getCol()) : ""
@@ -149,7 +150,7 @@ namespace {
             if (dependencyIter.operator!=(this->dependencies.end())) {
                 DependencySet dependencies = dependencyIter->second;
 
-                out << withIndent("dependencies:");
+                nout << withIndent("dependencies:");
 
                 for (DependencyPair dependencyPair : dependencies) {
                     std::string dependencyRef;
@@ -161,10 +162,12 @@ namespace {
                     }
 
                     if (!dependencyRef.empty()) {
-                        out << indentLine(indentLine("- *" + dependencyRef)) << '\n';
+                        nout << indentLine(indentLine(formatv("- \"*{0}\"", dependencyRef))) << '\n';
                     }
                 }
             }
+
+            out << withIndent(nout.str());
 
             return out.str();
         }
@@ -200,7 +203,7 @@ namespace {
          * @return The identifier with the given properties.
          */
         static std::string formatIdentifier(const std::string &prefix, const std::string &descriptor) {
-            return prefix + "_" + descriptor;
+            return prefix + "." + descriptor;
         }
 
         /**
@@ -210,7 +213,7 @@ namespace {
          * @return The identifier of the given function.
          */
         static std::string formatIdentifier(Function &function) {
-            return formatIdentifier("f", function.getName());
+            return formatIdentifier("function", function.getName());
         }
 
         /**
@@ -220,10 +223,7 @@ namespace {
          * @return The identifier of the given basic block.
          */
         static std::string formatIdentifier(BasicBlock &block) {
-            Function *function = block.getParent();
-            std::string functionName = function != nullptr ? function->getName() : "";
-
-            return formatIdentifier("b", formatv("{0}_{1}", functionName, block.getName()));
+            return formatIdentifier("block", block.getName());
         }
 
         /**
@@ -236,10 +236,7 @@ namespace {
             auto iterator = std::find(instructions.begin(), instructions.end(), &instruction);
             assert(iterator != instructions.end());
 
-            Function *function = instruction.getFunction();
-            std::string functionName = function != nullptr ? function->getName() : "";
-
-            return formatIdentifier("i", formatv("{0}_{1}", functionName, std::distance(instructions.begin(), iterator)));
+            return formatIdentifier("instruction", formatv("{0}", std::distance(instructions.begin(), iterator)));
         }
     };
 
