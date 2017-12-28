@@ -154,15 +154,18 @@ namespace {
 
                 for (DependencyPair dependencyPair : dependencies) {
                     std::string dependencyRef;
+                    std::string dependencyType;
 
                     if (dependencyPair.first.getPointer() != nullptr) {
                         dependencyRef = formatIdentifier((Instruction &) *dependencyPair.first.getPointer());
+                        dependencyType = formatDepType(&instruction, dependencyPair.first);
                     } else if (dependencyPair.second != nullptr) {
                         dependencyRef = formatIdentifier((BasicBlock &) *dependencyPair.second);
+                        dependencyType = "Unknown";
                     }
 
                     if (!dependencyRef.empty()) {
-                        nout << indentLine(indentLine(formatv("- \"*{0}\"", dependencyRef))) << '\n';
+                        nout << indentLine(indentLine(formatv(R"("*{0}": "{1}")", dependencyRef, dependencyType))) << '\n';
                     }
                 }
             }
@@ -237,6 +240,26 @@ namespace {
             assert(iterator != instructions.end());
 
             return formatIdentifier("instruction", formatv("{0}", std::distance(instructions.begin(), iterator)));
+        }
+
+        std::string formatDepType(Instruction *inst, Dependency dependency) const {
+            const Instruction *depInst = dependency.getPointer();
+
+            std::string before = "U", after = "U";
+
+            if (inst->mayReadFromMemory()) {
+                after = "R";
+            } else if (inst->mayWriteToMemory()) {
+                after = "W";
+            }
+
+            if (depInst->mayWriteToMemory()) {
+                before = "W";
+            } else if (depInst->mayReadFromMemory()) {
+                before = "R";
+            }
+
+            return formatv("{0}A{1}", after, before).str();
         }
     };
 
